@@ -8,6 +8,7 @@ import argparse
 from os.path import abspath, dirname
 from loguru import logger
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from message_store import MessageStore
 from transformers import AutoModel, AutoTokenizer
@@ -27,6 +28,22 @@ massage_store = MessageStore(db_path="message_store.json", table_name="chatgpt",
 
 app = FastAPI()
 
+origins = [
+    "http://localhost",
+    "http://localhost:8080",
+    "http://127.0.0.1:8080",
+    "http://localhost:8080",
+    "http://*.rccchina.com",
+    "http://*.api.rccchina.com"
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 stream_response_headers = {
     "Content-Type": "application/octet-stream",
