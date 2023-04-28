@@ -11,7 +11,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from message_store import MessageStore
-from transformers import AutoModel, AutoTokenizer
+import torch
+from transformers import AutoConfig, AutoModel, AutoTokenizer, HfArgumentParser
 from errors import Errors
 import knowledge
 import gen_data
@@ -117,7 +118,7 @@ async def process(prompt, options, params, message_store, is_knowledge, history=
             footer=  "\n参考：\n"+('\n').join(output_sources)+''
         # yield footer
         for response, history in model.stream_chat(tokenizer, prompt, history_formatted, max_length=params['max_length'],
-                                                    top_p=params['top_p'], temperature=params['temperature']):
+                                                   top_p=params['top_p'], temperature=params['temperature']):
             message = json.dumps(dict(
                 role="AI",
                 id=uid,
@@ -192,16 +193,45 @@ if __name__ == "__main__":
     # model_name = "THUDM/chatglm-6b"
     quantize = int(args.quantize)
     model = None
+
+    model_name_or_path = "THUDM/chatglm-6b"
+    ptuning_checkpoint = "output/adgen-chatglm-6b-pt-128-2e-2/checkpoint-3000"
+    pre_seq_len = 128
+
     if args.device == 'cpu':
-        model_path = model_path if  model_path else "THUDM/chatglm-6b-int4" 
+        model_path = model_path if  model_path else "THUDM/chatglm-6b-int4"
         tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
         model = AutoModel.from_pretrained(model_path, trust_remote_code=True).float()
     else:
-        model_path = model_path if  model_path else "THUDM/chatglm-6b" 
+        model_path = model_path if  model_path else "THUDM/chatglm-6b"
         tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
         if quantize == 16:
             model = AutoModel.from_pretrained(model_path, trust_remote_code=True).half().cuda()
         else:
-            model = AutoModel.from_pretrained(model_path, trust_remote_code=True).half().quantize(quantize).cuda()
+            # model = AutoModel.from_pretrained(model_path, trust_remote_code=True).half().quantize(quantize).cuda()
+            # 载入Tokenizer
+            tokenizer = AutoTokenizer.from_pretrained("THUDM/chatglm-6b", trust_remote_code=True)
+            # 载入Config
+            config = AutoConfig.from_pretrained("THUDM/chatglm-6b", trust_remote_code=True, pre_seq_len=128)
+            # config.pre_seq_len = model_args.pre_seq_len
+            # config.prefix_projection = model_args.prefix_projection
+
+            if ptuning_checkpoint is not None:
+                print(f"Loading prefix_encoder weight from {ptuning_checkpoint}")
+                model = AutoModel.from_pretrained(model_name_or_path, config=config, trust_remote_code=True)
+                prefix_state_dict = torch.load(os.path.join(ptuning_checkpoint, "pytorch_model.bin"))
+                new_prefix_state_dict = {}
+                for k, v in prefix_state_dict.items():
+                    if k.startswith("transformer.prefix_encoder."):
+                        new_prefix_state_dict[k[len("transformer.prefix_encoder."):]] = v
+                model.transformer.prefix_encoder.load_state_dict(new_prefix_state_dict)
+            else:
+                model = AutoModel.from_pretrained(model_name_or_path, config=config, trust_remote_code=True)
+
+            if pre_seq_len is not None:
+                # P-tuning v2
+                model = model.half().cuda()
+                model.transformer.prefix_encoder.float().cuda()
+
     model = model.eval()
     uvicorn.run(app, host=args.host, port=args.port)

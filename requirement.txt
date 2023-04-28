@@ -4,7 +4,6 @@ icetk
 cpm_kernels
 torch>=1.10
 fastapi
-fastapi-cors
 uvicorn
 loguru
 jieba
