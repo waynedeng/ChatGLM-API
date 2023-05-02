@@ -1,0 +1,15 @@
+protobuf>=3.19.5,<3.20.1
+transformers>=4.27.4
+icetk
+cpm_kernels
+torch>=1.10
+fastapi
+uvicorn
+loguru
+jieba
+whoosh
+tinydb
+trl>=0.4.1
+git+https://github.com/huggingface/peft.git
+rouge_chinese
+nltk
